@@ -100,21 +100,21 @@ dynomite copy --from source-table --to destination-table
 
 # Copy with partition key filter
 dynomite copy --from users --to users-backup \
-  --partition-key "userId=123"
+  --pk "userId=123"
 
 # Copy with partition and sort key filters
 dynomite copy --from orders --to orders-archive \
-  --partition-key "customerId=456" \
-  --sort-key "orderDate > 2023-01-01"
+  --pk "customerId=456" \
+  --sk "orderDate > 2023-01-01"
 
 # Copy using a global secondary index
 dynomite copy --from products --to products-backup \
   --index EmailIndex \
-  --partition-key "email=user@example.com"
+  --pk "email=user@example.com"
 
 # Copy with additional filter expression
 dynomite copy --from users --to active-users \
-  --partition-key "status=active" \
+  --pk "status=active" \
   --filter "age > :minAge AND country = :country" \
   --filter-attrs "minAge=18,country=US"
 ```
@@ -133,8 +133,8 @@ dynomite export --table users --output users.json
 # Export with filtering
 dynomite export --table orders \
   --output recent-orders.json \
-  --partition-key "customerId=123" \
-  --sort-key "orderDate > 2024-01-01"
+  --pk "customerId=123" \
+  --sk "orderDate > 2024-01-01"
 
 # Export to stdout (useful for piping)
 dynomite export --table users
@@ -179,7 +179,7 @@ Delete items from a table with safety confirmations:
 ```bash
 # Interactive mode with confirmation
 dynomite delete --table users \
-  --partition-key "userId=123"
+  --pk "userId=123"
 
 # Delete with filter expression
 dynomite delete --table users \
@@ -188,7 +188,7 @@ dynomite delete --table users \
 
 # Preview items before deletion
 # When prompted, enter 'p' to preview keys before confirming
-dynomite delete --table users --partition-key "status=inactive"
+dynomite delete --table users --pk "status=inactive"
 ```
 
 ## Filter Options
@@ -198,7 +198,7 @@ All commands support advanced filtering:
 ### Partition Key
 
 ```bash
---partition-key "keyName=value"
+--pk "keyName=value"
 ```
 
 ### Sort Key
@@ -206,9 +206,9 @@ All commands support advanced filtering:
 Supports operators: `=`, `<`, `<=`, `>`, `>=`, `begins_with`, `between`
 
 ```bash
---sort-key "timestamp > 2024-01-01"
---sort-key "name begins_with John"
---sort-key "age between 18,65"
+--sk "timestamp > 2024-01-01"
+--sk "name begins_with John"
+--sk "age between 18,65"
 ```
 
 ### Index

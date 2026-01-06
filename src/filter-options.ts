@@ -6,12 +6,9 @@ import { QueryOptions, KeySchema } from "./util.js";
  */
 export function addFilterOptions(command: Command): Command {
   return command
+    .option("--pk [key]", "Partition key filter (format: value or =:value)")
     .option(
-      "--pk, --partition-key [key]",
-      "Partition key filter (format: value or =:value)"
-    )
-    .option(
-      "--sk, --sort-key [key]",
+      "--sk [key]",
       "Sort key filter (format: value, operator:value, begins_with:value, or between:val1:val2)"
     )
     .option("--index [indexName]", "Index name to query (for GSI/LSI)")
