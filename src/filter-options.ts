@@ -124,11 +124,7 @@ export function parseFilterOptions(
   }
 
   // Add filter expression
-  if (options.filter) {
-    queryOptions.filterExpression = options.filter;
-  }
-
-  // Parse filter attributes JSON
+  // Parse filter attributes JSON first so normalization can reuse them
   if (options.filterAttrs) {
     try {
       queryOptions.filterAttributes = JSON.parse(options.filterAttrs);
@@ -139,5 +135,108 @@ export function parseFilterOptions(
     }
   }
 
+  // Add filter expression
+  if (options.filter) {
+    // Normalize simple filter expressions into Dynamo-safe placeholders
+    // e.g. type=goal  ->  #type = :type  with filterAttributes { type: 'goal' }
+    const existingAttrs = queryOptions.filterAttributes || {};
+    const { expression, attributes } = normalizeFilterExpression(
+      options.filter,
+      existingAttrs
+    );
+    queryOptions.filterExpression = expression;
+    queryOptions.filterAttributes = { ...existingAttrs, ...attributes };
+  }
+
   return queryOptions;
+}
+
+/**
+ * Convert a user-friendly filter string into an expression using
+ * ExpressionAttributeNames (#+name) and ExpressionAttributeValues (:+name).
+ * Supports simple comparison clauses and begins_with(...).
+ */
+function normalizeFilterExpression(
+  filter: string,
+  existingAttributes: Record<string, any> = {}
+): { expression: string; attributes: Record<string, any> } {
+  const attributes: Record<string, any> = {};
+
+  // Split on AND/OR while keeping the separators
+  const parts = filter.split(/(\s+(?:AND|OR)\s+)/i);
+
+  const parsedParts = parts.map((part) => {
+    const trimmed = part.trim();
+
+    // Preserve separators (AND/OR)
+    if (/^(AND|OR)$/i.test(trimmed)) return trimmed;
+
+    // begins_with(attr, val) style
+    const beginsMatch = trimmed.match(/^begins_with\((\w+)\s*,\s*(.+)\)$/i);
+    if (beginsMatch) {
+      const field = beginsMatch[1];
+      let val = beginsMatch[2].trim();
+      // Remove surrounding quotes if present
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.substring(1, val.length - 1);
+      }
+      if (val.startsWith(":")) {
+        // value is already a placeholder
+        return `begins_with(#${field}, ${val})`;
+      }
+      // prefer existing attribute value if provided
+      if (existingAttributes[field] !== undefined) {
+        attributes[field] = existingAttributes[field];
+      } else {
+        attributes[field] = parseValue(val);
+      }
+      return `begins_with(#${field}, :${field})`;
+    }
+
+    // comparison operators
+    const compMatch = trimmed.match(/^(\w+)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
+    if (compMatch) {
+      const field = compMatch[1];
+      const op = compMatch[2];
+      let val = compMatch[3].trim();
+
+      // If value is already a placeholder like :val, leave as-is
+      if (val.startsWith(":")) {
+        return `#${field} ${op} ${val}`;
+      }
+
+      // Strip quotes for literal strings
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.substring(1, val.length - 1);
+      }
+
+      // prefer existing attribute value if provided
+      if (existingAttributes[field] !== undefined) {
+        attributes[field] = existingAttributes[field];
+      } else {
+        attributes[field] = parseValue(val);
+      }
+
+      return `#${field} ${op} :${field}`;
+    }
+
+    // If nothing matched, return original part (Dynamo placeholders may already be used)
+    return part;
+  });
+
+  return { expression: parsedParts.join(" "), attributes };
+}
+
+function parseValue(val: string): any {
+  // Try to parse numbers
+  if (/^-?\d+$/.test(val)) return parseInt(val, 10);
+  if (/^-?\d+\.\d+$/.test(val)) return parseFloat(val);
+  // Otherwise treat as string
+  return val;
 }

@@ -114,10 +114,16 @@ export async function* queryTable(
   // Add filter attributes to expression values
   if (filterAttributes) {
     for (const [key, value] of Object.entries(filterAttributes)) {
-      ExpressionAttributeValues[`:${key}`] = value;
-      // Also add to attribute names if they might conflict
-      if (!ExpressionAttributeNames[`#${key}`]) {
-        ExpressionAttributeNames[`#${key}`] = key;
+      // If user already provided a placeholder name in ExpressionAttributeValues,
+      // prefer that (not typical here). Otherwise add :key
+      const valuePlaceholder = `:${key}`;
+      ExpressionAttributeValues[valuePlaceholder] = value;
+
+      // Always add a corresponding ExpressionAttributeNames mapping to avoid
+      // reserved keyword collisions when building expressions like #type
+      const namePlaceholder = `#${key}`;
+      if (!ExpressionAttributeNames[namePlaceholder]) {
+        ExpressionAttributeNames[namePlaceholder] = key;
       }
     }
   }

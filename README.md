@@ -228,6 +228,19 @@ Additional filtering with custom expressions:
 
 The `--filter-attrs` option accepts comma-separated key=value pairs that are used as expression attribute values.
 
+You can also supply simple user-friendly filters without writing Dynamo placeholders. The CLI will automatically convert these into safe ExpressionAttributeName and ExpressionAttributeValue placeholders to avoid DynamoDB reserved word conflicts. Examples:
+
+```bash
+# Simple equality on a reserved word field (e.g. 'type')
+dynomite export --filter "type=goal" --table my-table --output out.json
+
+# begins_with usage (also supported):
+dynomite export --filter "begins_with(title, 'Intro')" --table my-table
+
+# Combined expressions using AND/OR:
+dynomite export --filter "type=goal AND begins_with(title, 'Intro')"
+```
+
 ## Environment Variables
 
 You can set default values using environment variables:
