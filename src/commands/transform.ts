@@ -15,7 +15,28 @@ export function setup(program: Command) {
   program
     .command("transform")
     .description(
-      "Apply a user-provided JS/TS transform to each record in a JSON file"
+      "Apply a user-provided JavaScript or TypeScript transform to every item in a JSON file."
+    )
+    .addHelpText(
+      "after",
+      [
+        "\nTransform module must export a function (default or named 'transform'):",
+        "  // Example (ESM):",
+        "  export default (item) => {",
+        "    item.migratedAt = new Date().toISOString();",
+        "    return item;",
+        "  };",
+        "\nTypeScript files are supported at runtime if you install 'esbuild' and 'esbuild-register':",
+        "  npm install --save-dev esbuild esbuild-register",
+        "\nExamples:",
+        "  # Interactive prompts for files",
+        "  dynomite transform",
+        "\n  # Specify files directly",
+        "  dynomite transform --input exported.json --transform ./migrations/add-field.js --output migrated.json",
+        "\n  # Pipe via stdin/stdout",
+        "  cat exported.json | dynomite transform --transform ./migrations/add-field.js > migrated.json",
+        "",
+      ].join("\n")
     )
     .option(
       "-i, --input [file]",
@@ -87,7 +108,14 @@ async function runTransform(
   let transformFn:
     | ((
         item: Record<string, any>
-      ) => Record<string, any> | Promise<Record<string, any>>)
+      ) =>
+        | Record<string, any>
+        | Record<string, any>[]
+        | undefined
+        | null
+        | Promise<
+            Record<string, any> | Record<string, any>[] | undefined | null
+          >)
     | null = null;
 
   // Try to require dynamically. Use dynamic import which works with ES modules.
@@ -143,7 +171,22 @@ async function runTransform(
     index++;
     try {
       const res = await transformFn(item);
-      results.push(res);
+
+      // If transform returns null/undefined/void -> skip (don't add anything)
+      if (res == null) {
+        continue;
+      }
+
+      // If the transform returns an array, push each item separately
+      if (Array.isArray(res)) {
+        for (const r of res) {
+          results.push(r as Record<string, any>);
+        }
+        continue;
+      }
+
+      // Otherwise push the single transformed item
+      results.push(res as Record<string, any>);
     } catch (err) {
       throw new Error(`Transform failed at item #${index}: ${String(err)}`);
     }
