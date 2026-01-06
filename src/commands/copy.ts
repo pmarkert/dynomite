@@ -7,17 +7,16 @@ import {
   getTableKeySchema,
 } from "../util.js";
 import { Command } from "commander";
-import { addFilterOptions, parseFilterOptions } from "../filter-options.js";
+import {
+  addFilterOptions,
+  FilterCommandOptions,
+  parseFilterOptions,
+} from "../filter-options.js";
 import { wrapCommandHandler } from "../command-wrapper.js";
 
-interface Options {
+interface Options extends FilterCommandOptions {
   from?: string;
   to?: string;
-  partitionKey?: string;
-  sortKey?: string;
-  index?: string;
-  filter?: string;
-  filterAttrs?: string;
 }
 
 export function setup(program: Command) {

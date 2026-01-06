@@ -6,28 +6,29 @@ import { QueryOptions, KeySchema } from "./util.js";
  */
 export function addFilterOptions(command: Command): Command {
   return command
-    .option("--pk [key]", "Partition key filter (format: value or =:value)")
+    .option(
+      "--pk [key]",
+      "Partition key filter. Provide the partition key value (equality only). Example: --pk 123 or --pk user-123"
+    )
     .option(
       "--sk [key]",
-      "Sort key filter (format: value, operator:value, begins_with:value, or between:val1:val2)"
+      "Sort key filter. Supported formats: 'value' (equals), 'operator value' (e.g. '>= 100', '< 50'), 'begins_with(prefix)' and 'between(val1,val2)'. Examples: --sk 2023-01-01 --sk '>= 100' --sk 'begins_with(2023-)' --sk 'between(100,200)'"
     )
-    .option("--index [indexName]", "Index name to query (for GSI/LSI)")
+    .option(
+      "--index [indexName]",
+      "Index name to query (GSI/LSI). Use when querying a secondary index. Example: --index MyGSI"
+    )
     .option(
       "--filter [expression]",
-      "Filter expression for additional filtering"
-    )
-    .option(
-      "--filter-attrs [json]",
-      'Filter attribute values as JSON (format: \'{"key":"value"}\')'
+      "Additional filter expression for non-key attributes. Supports comparisons (=, !=, <, <=, >, >=), functions (begins_with, contains, between, attribute_exists, attribute_not_exists, size), IN operator, and AND/OR. Examples: --filter \"status='open' AND score>=10\" or --filter \"contains(tags,'premium')\""
     );
 }
 
-interface FilterCommandOptions {
+export interface FilterCommandOptions {
   partitionKey?: string;
   sortKey?: string;
   index?: string;
   filter?: string;
-  filterAttrs?: string;
 }
 
 /**
@@ -46,21 +47,12 @@ export function parseFilterOptions(
   // - "=:value" (explicit = operator)
   if (options.partitionKey) {
     const input = options.partitionKey;
-
-    // Check for operator prefix
-    const operatorMatch = input.match(/^(=):(.+)$/);
-    if (operatorMatch) {
-      queryOptions.partitionKey = {
-        name: keySchema.partitionKey,
-        value: operatorMatch[2],
-      };
-    } else {
-      // No operator, assume equality
-      queryOptions.partitionKey = {
-        name: keySchema.partitionKey,
-        value: input,
-      };
-    }
+    // Partition key only supports equality; use the raw value. If the user
+    // needs to include leading operators in the value, they should quote it.
+    queryOptions.partitionKey = {
+      name: keySchema.partitionKey,
+      value: input,
+    };
   }
 
   // Parse sort key
@@ -78,31 +70,43 @@ export function parseFilterOptions(
 
     const name = keySchema.sortKey;
 
-    if (input.startsWith("between:")) {
-      const values = input.substring(8).split(":");
-      if (values.length !== 2) {
-        throw new Error("Invalid between format. Use: between:value1:value2");
+    if (/^between\(/i.test(input)) {
+      const m = input.match(/^between\(([^,]+),\s*([^\)]+)\)$/i);
+      if (!m) {
+        throw new Error("Invalid between format. Use: between(val1,val2)");
       }
       queryOptions.sortKey = {
         name,
         operator: "between",
-        value: values[0],
-        value2: values[1],
+        value: m[1].trim(),
+        value2: m[2].trim(),
       };
-    } else if (input.startsWith("begins_with:")) {
+    } else if (/^begins_with\(/i.test(input)) {
+      const m = input.match(/^begins_with\(([^\)]+)\)$/i);
+      if (!m) {
+        throw new Error("Invalid begins_with format. Use: begins_with(prefix)");
+      }
+      let val = m[1].trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.substring(1, val.length - 1);
+      }
       queryOptions.sortKey = {
         name,
         operator: "begins_with",
-        value: input.substring(12),
+        value: val,
       };
     } else {
-      // Check for comparison operators
-      const operatorMatch = input.match(/^(<=|>=|<|>|=):(.+)$/);
+      // Check for comparison operators. Allow optional space or colon after operator
+      // Examples: '>=100', '>= 100', '>=:100' (colon kept for backwards-compat)
+      const operatorMatch = input.match(/^(<=|>=|<|>|=)[:\s]?(.*)$/);
       if (operatorMatch) {
         queryOptions.sortKey = {
           name,
           operator: operatorMatch[1],
-          value: operatorMatch[2],
+          value: operatorMatch[2].trim(),
         };
       } else {
         // No operator, assume equality
@@ -121,28 +125,14 @@ export function parseFilterOptions(
   }
 
   // Add filter expression
-  // Parse filter attributes JSON first so normalization can reuse them
-  if (options.filterAttrs) {
-    try {
-      queryOptions.filterAttributes = JSON.parse(options.filterAttrs);
-    } catch (error) {
-      throw new Error(
-        'Invalid filter attributes JSON. Use format: \'{"key":"value"}\''
-      );
-    }
-  }
-
-  // Add filter expression
   if (options.filter) {
     // Normalize simple filter expressions into Dynamo-safe placeholders
-    // e.g. type=goal  ->  #type = :type  with filterAttributes { type: 'goal' }
-    const existingAttrs = queryOptions.filterAttributes || {};
+    // e.g. type='goal'  ->  #type = :type  with filterAttributes { type: 'goal' }
     const { expression, attributes } = normalizeFilterExpression(
-      options.filter,
-      existingAttrs
+      options.filter
     );
     queryOptions.filterExpression = expression;
-    queryOptions.filterAttributes = { ...existingAttrs, ...attributes };
+    queryOptions.filterAttributes = attributes;
   }
 
   return queryOptions;
@@ -153,10 +143,10 @@ export function parseFilterOptions(
  * ExpressionAttributeNames (#+name) and ExpressionAttributeValues (:+name).
  * Supports simple comparison clauses and begins_with(...).
  */
-function normalizeFilterExpression(
-  filter: string,
-  existingAttributes: Record<string, any> = {}
-): { expression: string; attributes: Record<string, any> } {
+function normalizeFilterExpression(filter: string): {
+  expression: string;
+  attributes: Record<string, any>;
+} {
   const attributes: Record<string, any> = {};
 
   // Split on AND/OR while keeping the separators
@@ -167,6 +157,20 @@ function normalizeFilterExpression(
 
     // Preserve separators (AND/OR)
     if (/^(AND|OR)$/i.test(trimmed)) return trimmed;
+
+    // attribute_exists(attr) - pass through with attribute name placeholder
+    const existsMatch = trimmed.match(/^attribute_exists\((\w+)\)$/i);
+    if (existsMatch) {
+      const field = existsMatch[1];
+      return `attribute_exists(#${field})`;
+    }
+
+    // attribute_not_exists(attr) - pass through with attribute name placeholder
+    const notExistsMatch = trimmed.match(/^attribute_not_exists\((\w+)\)$/i);
+    if (notExistsMatch) {
+      const field = notExistsMatch[1];
+      return `attribute_not_exists(#${field})`;
+    }
 
     // begins_with(attr, val) style
     const beginsMatch = trimmed.match(/^begins_with\((\w+)\s*,\s*(.+)\)$/i);
@@ -180,17 +184,95 @@ function normalizeFilterExpression(
       ) {
         val = val.substring(1, val.length - 1);
       }
-      if (val.startsWith(":")) {
-        // value is already a placeholder
-        return `begins_with(#${field}, ${val})`;
-      }
-      // prefer existing attribute value if provided
-      if (existingAttributes[field] !== undefined) {
-        attributes[field] = existingAttributes[field];
-      } else {
-        attributes[field] = parseValue(val);
-      }
+      attributes[field] = parseValue(val);
       return `begins_with(#${field}, :${field})`;
+    }
+
+    // contains(attr, val) - check if string contains substring or set contains value
+    const containsMatch = trimmed.match(/^contains\((\w+)\s*,\s*(.+)\)$/i);
+    if (containsMatch) {
+      const field = containsMatch[1];
+      let val = containsMatch[2].trim();
+      // Remove surrounding quotes if present
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.substring(1, val.length - 1);
+      }
+      attributes[field] = parseValue(val);
+      return `contains(#${field}, :${field})`;
+    }
+
+    // between(attr, val1, val2) - check if value is between two values
+    const betweenMatch = trimmed.match(
+      /^between\((\w+)\s*,\s*([^,]+)\s*,\s*(.+)\)$/i
+    );
+    if (betweenMatch) {
+      const field = betweenMatch[1];
+      let val1 = betweenMatch[2].trim();
+      let val2 = betweenMatch[3].trim();
+      // Remove surrounding quotes if present
+      if (
+        (val1.startsWith('"') && val1.endsWith('"')) ||
+        (val1.startsWith("'") && val1.endsWith("'"))
+      ) {
+        val1 = val1.substring(1, val1.length - 1);
+      }
+      if (
+        (val2.startsWith('"') && val2.endsWith('"')) ||
+        (val2.startsWith("'") && val2.endsWith("'"))
+      ) {
+        val2 = val2.substring(1, val2.length - 1);
+      }
+      attributes[`${field}_between1`] = parseValue(val1);
+      attributes[`${field}_between2`] = parseValue(val2);
+      return `#${field} BETWEEN :${field}_between1 AND :${field}_between2`;
+    }
+
+    // size(attr) comparisons - e.g., size(name)>10
+    const sizeMatch = trimmed.match(
+      /^size\((\w+)\)\s*(=|!=|<=|>=|<|>)\s*(.+)$/i
+    );
+    if (sizeMatch) {
+      const field = sizeMatch[1];
+      const op = sizeMatch[2];
+      let val = sizeMatch[3].trim();
+      // Remove surrounding quotes if present (though size typically compares to numbers)
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.substring(1, val.length - 1);
+      }
+      attributes[`${field}_size`] = parseValue(val);
+      return `size(#${field}) ${op} :${field}_size`;
+    }
+
+    // IN operator - e.g., status IN ('active','pending','approved')
+    const inMatch = trimmed.match(/^(\w+)\s+IN\s*\((.+)\)$/i);
+    if (inMatch) {
+      const field = inMatch[1];
+      const valuesStr = inMatch[2];
+      // Split by comma and parse each value
+      const values = valuesStr.split(",").map((v) => {
+        let val = v.trim();
+        // Remove surrounding quotes if present
+        if (
+          (val.startsWith('"') && val.endsWith('"')) ||
+          (val.startsWith("'") && val.endsWith("'"))
+        ) {
+          val = val.substring(1, val.length - 1);
+        }
+        return parseValue(val);
+      });
+      // Create placeholders for each value
+      const placeholders = values.map((val, idx) => {
+        const placeholder = `${field}_in${idx}`;
+        attributes[placeholder] = val;
+        return `:${placeholder}`;
+      });
+      return `#${field} IN (${placeholders.join(", ")})`;
     }
 
     // comparison operators
@@ -200,11 +282,6 @@ function normalizeFilterExpression(
       const op = compMatch[2];
       let val = compMatch[3].trim();
 
-      // If value is already a placeholder like :val, leave as-is
-      if (val.startsWith(":")) {
-        return `#${field} ${op} ${val}`;
-      }
-
       // Strip quotes for literal strings
       if (
         (val.startsWith('"') && val.endsWith('"')) ||
@@ -213,13 +290,7 @@ function normalizeFilterExpression(
         val = val.substring(1, val.length - 1);
       }
 
-      // prefer existing attribute value if provided
-      if (existingAttributes[field] !== undefined) {
-        attributes[field] = existingAttributes[field];
-      } else {
-        attributes[field] = parseValue(val);
-      }
-
+      attributes[field] = parseValue(val);
       return `#${field} ${op} :${field}`;
     }
 
@@ -231,9 +302,17 @@ function normalizeFilterExpression(
 }
 
 function parseValue(val: string): any {
+  // Try to parse booleans
+  if (val === "true") return true;
+  if (val === "false") return false;
+
+  // Try to parse null
+  if (val === "null") return null;
+
   // Try to parse numbers
   if (/^-?\d+$/.test(val)) return parseInt(val, 10);
   if (/^-?\d+\.\d+$/.test(val)) return parseFloat(val);
+
   // Otherwise treat as string
   return val;
 }

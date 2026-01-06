@@ -16,6 +16,7 @@ async function main() {
     .name("dynomite")
     .description("CLI tool for DynamoDB table migration and management")
     .version("1.0.0")
+    .showHelpAfterError("(add --help for additional information)")
     .enableCompletion();
 
   // Auto-discover and register all commands from the commands folder

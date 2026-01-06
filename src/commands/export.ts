@@ -5,17 +5,16 @@ import { createWriteStream, mkdirSync } from "fs";
 import { dirname } from "path";
 import type { Writable } from "stream";
 import { Command } from "commander";
-import { addFilterOptions, parseFilterOptions } from "../filter-options.js";
+import {
+  addFilterOptions,
+  FilterCommandOptions,
+  parseFilterOptions,
+} from "../filter-options.js";
 import { wrapCommandHandler } from "../command-wrapper.js";
 
-interface ExportCliOptions {
+interface Options extends FilterCommandOptions {
   table?: string;
   output?: string;
-  partitionKey?: string;
-  sortKey?: string;
-  index?: string;
-  filter?: string;
-  filterAttrs?: string;
 }
 
 export function setup(program: Command) {
@@ -31,7 +30,7 @@ export function setup(program: Command) {
   command.action(wrapCommandHandler(exportCommand));
 }
 
-async function exportCommand(options: ExportCliOptions = {}) {
+async function exportCommand(options: Options = {}) {
   let fromTable = options.table || process.env.FROM_TABLE;
   let outputFile = options.output;
 

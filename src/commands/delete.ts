@@ -1,7 +1,11 @@
 import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { Command } from "commander";
 import { search, input } from "@inquirer/prompts";
-import { addFilterOptions, parseFilterOptions } from "../filter-options.js";
+import {
+  addFilterOptions,
+  FilterCommandOptions,
+  parseFilterOptions,
+} from "../filter-options.js";
 import {
   dynamoClient,
   extractKeys,
@@ -11,13 +15,8 @@ import {
 } from "../util.js";
 import { wrapCommandHandler } from "../command-wrapper.js";
 
-interface Options {
+interface Options extends FilterCommandOptions {
   table?: string;
-  partitionKey?: string;
-  sortKey?: string;
-  index?: string;
-  filter?: string;
-  filterAttrs?: string;
 }
 
 export function setup(program: Command) {
