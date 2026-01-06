@@ -197,6 +197,18 @@ All commands support advanced filtering:
 
 ### Partition Key
 
+## Error Handling
+
+Dynomite now formats runtime errors to be more user-friendly. By default you'll see a concise error message and a hint when common AWS configuration problems are detected (for example missing region or credentials).
+
+If you need full debugging information including stack traces, enable the debug output by setting `DEBUG=1` in your environment before running a command:
+
+```bash
+DEBUG=1 dynomite export --table users --output users.json
+```
+
+This will print the full error stack to help with troubleshooting.
+
 ```bash
 --pk "keyName=value"
 ```

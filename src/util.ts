@@ -11,7 +11,23 @@ import {
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
 
-export const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+let _dynamoClient: DynamoDBDocumentClient | null = null;
+export const dynamoClient = (() => {
+  if (_dynamoClient) return _dynamoClient;
+  try {
+    _dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+    return _dynamoClient;
+  } catch (err) {
+    // Throw a clearer error that will be picked up by the centralized handler
+    throw new Error(
+      `Failed to create DynamoDB client: ${
+        err && typeof err === "object" && "message" in (err as any)
+          ? (err as any).message
+          : String(err)
+      }`
+    );
+  }
+})();
 
 export interface QueryOptions {
   partitionKey?: { name: string; value: any };

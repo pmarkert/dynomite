@@ -1,6 +1,8 @@
 /**
  * Wraps a command handler with standardized error handling
  */
+import { handleErrorAndExit } from "./error.js";
+
 export function wrapCommandHandler<T>(
   handler: (options: T) => Promise<void>
 ): (options: T) => Promise<void> {
@@ -12,8 +14,9 @@ export function wrapCommandHandler<T>(
         console.error("\nOperation cancelled.");
         process.exit(0);
       }
-      console.error("Error:", error);
-      process.exit(1);
+
+      // Use centralized handler to format and exit
+      handleErrorAndExit(error);
     }
   };
 }
