@@ -365,6 +365,39 @@ npm run build
 npm run dev -- <command> [options]
 ```
 
+### Transform Command
+
+Apply a user-provided JavaScript or TypeScript transform function to every item in a JSON file.
+
+The transform module must export a function (either default or named `transform`) with the signature:
+
+```js
+// Example transform (JS)
+module.exports = function (item) {
+  item.migratedAt = new Date().toISOString();
+  return item;
+};
+```
+
+For TypeScript, export a default function as usual. To load `.ts` files at runtime, install `esbuild` and `esbuild-register` in your environment:
+
+```bash
+npm install --save-dev esbuild esbuild-register
+```
+
+Usage examples:
+
+```bash
+# Interactive prompts for files
+dynomite transform
+
+# Specify files directly
+dynomite transform --input exported.json --transform ./migrations/add-field.js --output migrated.json
+
+# Pipe via stdin/stdout
+cat exported.json | dynomite transform --transform ./migrations/add-field.js > migrated.json
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
