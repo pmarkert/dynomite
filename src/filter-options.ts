@@ -25,8 +25,8 @@ export function addFilterOptions(command: Command): Command {
 }
 
 export interface FilterCommandOptions {
-  partitionKey?: string;
-  sortKey?: string;
+  pk?: string;
+  sk?: string;
   index?: string;
   filter?: string;
 }
@@ -45,8 +45,8 @@ export function parseFilterOptions(
   // Supports formats:
   // - "value" (assumes = operator)
   // - "=:value" (explicit = operator)
-  if (options.partitionKey) {
-    const input = options.partitionKey;
+  if (options.pk) {
+    const input = options.pk;
     // Partition key only supports equality; use the raw value. If the user
     // needs to include leading operators in the value, they should quote it.
     queryOptions.partitionKey = {
@@ -55,14 +55,21 @@ export function parseFilterOptions(
     };
   }
 
+  // If a sort key filter was provided without a partition key, that's invalid
+  // because DynamoDB Query operations require the partition key. Return an
+  // explicit error to inform the user instead of silently performing a scan.
+  if (options.sk && !options.pk) {
+    throw new Error("Sort key filter (--sk) requires a partition key (--pk).");
+  }
+
   // Parse sort key
   // Supports formats:
   // - "value" (assumes = operator)
   // - "operator:value" (e.g., ">=:100", "<:50")
   // - "between:value1:value2"
   // - "begins_with:value"
-  if (options.sortKey) {
-    const input = options.sortKey;
+  if (options.sk) {
+    const input = options.sk;
 
     if (!keySchema.sortKey) {
       throw new Error("Table does not have a sort key");
